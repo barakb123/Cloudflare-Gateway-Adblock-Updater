@@ -542,7 +542,18 @@ def update_policy_for_filter(filter_config: Dict, final_list_ids: List[str],
 
     # Check if policy exists to determine POST or PUT
     existing_policy = next((rule for rule in cached_rules if rule['name'] == policy_name), None)
-    
+
+    # ── FIX: PUT replaces the whole rule, so anything configured in the ─────
+    # dashboard (e.g. "Modify Gateway block behavior", notifications,
+    # schedule, duration) that isn't in this payload gets wiped out on every
+    # update unless we carry it forward from the existing policy.
+    if existing_policy:
+        for preserve_key in ('rule_settings', 'schedule', 'expiration', 'identity', 'device_posture'):
+            existing_value = existing_policy.get(preserve_key)
+            if existing_value is not None:
+                policy_payload[preserve_key] = existing_value
+    # ──────────────────────────────────────────────────────────────────────
+
     if existing_policy:
         logger.info(f"✍️ Updating existing policy '{policy_name}'...")
         async def run_update():
@@ -669,6 +680,9 @@ def process_filter_async(filter_config: Dict, cached_lists: List[Dict],
         new_list_ids = [lid for lid in created_ids if lid]
         
         # Create Policy
+        # NOTE: In Fresh_Start mode the old policy was deleted above, so there's
+        # nothing to preserve rule_settings from — the dashboard toggle will need
+        # to be re-enabled manually once after a fresh start.
         policy_success = update_policy_for_filter(filter_config, new_list_ids, len(target_domains), cached_rules, current_version)
 
         if not policy_success:
